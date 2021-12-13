@@ -1,0 +1,189 @@
+# setwd()
+options(java.parameters = "-Xmx8000m")
+memory.limit(size = 120000)
+
+# Load packages- *MESSAGE: one or more packages need to be updated*
+#install.packages("raster")
+library(rgbif)
+library(scrubr)
+library(maps)
+library(rgdal) 
+library(dplyr)
+library(rgeos)
+library(dismo)
+library(maptools)
+library(rasterVis)
+library(viridis)
+library(landscapemetrics)
+library(tidyverse)
+library(fs)
+library(exactextractr)
+library(Rcpp)
+library(ggplot2)
+library(tidyr)
+library(pals)
+
+data(wrld_simpl)
+
+# set temporary directory
+mytempdir <- tempdir()
+mytempdir <- paste0(mytempdir,"\\raster")
+
+# run mask raster function
+mask_raster <- function(raster, shape){
+  outr <- crop(raster, extent(shape))
+  outr <- mask(outr, shape)
+  return(outr)
+}
+
+
+# Import all known inputs
+# AOI
+GMI_BCR_AOI <- readOGR(dsn=path.expand("C:/Users/jquinn2/Desktop/GMI SDM"), layer="CMG_BCR")
+BCR_HUC12watershed <- readOGR(dsn=path.expand("C:/Users/jquinn2/Desktop/GMI SDM/wbdhu12_a_us_september2020"), layer="HUC12_BCR")
+BCRExtent <- extent(GMI_BCR_AOI)
+
+
+# import baseline LULC raster
+setwd("C:/Users/jquinn2/Desktop/GMI SDM")
+CDL_2018_BCR_RC<-raster("C:/Users/jquinn2/Desktop/GMI SDM/Cropscape/Reclassified/CDL_2018_BCR_RC.tif")
+names(CDL_2018_BCR_RC) <- c('CDL_mode')
+predictors_BCR<-stack (CDL_2018_BCR_RC)
+# BCR18_CDL_freq<-freq(predictors_BCR) - checks frequency of different values in raster
+
+# import scenario LULC rasters
+NtE25Per_nonGr<-raster("C:/Users/jquinn2/Desktop/GMI SDM/Cropscape/ScenariosR3/nearest_to_edge_Testing25Per_nonGr.tif")
+names(NtE25Per_nonGr) <- c('CDL_mode')
+
+NtE50Per_nonGr<-raster("C:/Users/jquinn2/Desktop/GMI SDM/Cropscape/ScenariosR3/nearest_to_edge_Testing50Per_nonGr.tif")
+names(NtE50Per_nonGr) <- c('CDL_mode')
+
+NtE75Per_nonGr<-raster("C:/Users/jquinn2/Desktop/GMI SDM/Cropscape/ScenariosR3/nearest_to_edge_Testing75Per_nonGr.tif")
+names(NtE75Per_nonGr) <- c('CDL_mode')
+
+# Project rasters
+predictors_BCR_NtE25Per_nonGr <-projectRaster(NtE25Per_nonGr,  crs=crs(CDL_2018_BCR_RC))
+predictors_BCR_NtE25Per_nonGr<-stack (predictors_BCR_NtE25Per_nonGr)
+names(predictors_BCR_NtE25Per_nonGr) <- c('CDL_mode')
+
+predictors_BCR_NtE50Per_nonGr <-projectRaster(NtE50Per_nonGr,  crs=crs(CDL_2018_BCR_RC))
+predictors_BCR_NtE50Per_nonGr<-stack (predictors_BCR_NtE50Per_nonGr)
+names(predictors_BCR_NtE50Per_nonGr) <- c('CDL_mode')
+
+predictors_BCR_NtE75Per_nonGr <-projectRaster(NtE75Per_nonGr,  crs=crs(CDL_2018_BCR_RC))
+predictors_BCR_NtE75Per_nonGr<-stack (predictors_BCR_NtE75Per_nonGr)
+names(predictors_BCR_NtE75Per_nonGr) <- c('CDL_mode')
+
+# set working directory to intermeditate outputs folder
+setwd("C:/Users/jquinn2/Documents/gbif_LL_S")
+
+# create list of species of interst
+weme<-c("Sturnella neglecta") #14000   14615
+eame<-c("Sturnella magna") #8372
+#grsp<-c("Ammodramus savannarum") #2632
+dick<-c("Spiza americana") #7115
+#nobo<-c("Colinus virginianus") #5266
+bevi<-c("Vireo bellii") #2253
+eaki<-c("Tyrannus tyrannus") #7925
+#witk<-c("Meleagris gallopavo")
+#ybcu<-c("Coccyzus americanus") #3543
+#upsp<-c("Bartramia longicauda") #2043
+#bobo<-c("Dolichonyx oryzivorus") #476
+#labu<-c("Calamospiza melanocorys") #1707
+#sppi<-c("Anthus spragueii")#75
+#cclo<-c("Calcarius ornatus") #273
+#basp<-c("Centronyx bairdii") #1
+#hesp<-c("Centronyx henslowii") #75
+#lbcu<-c("Numenius americanus") #481
+#seow<-c("Asio flammeus")
+#hola<-c("Eremophila alpestris")
+#buow<-c("Athene cunicularia")  #
+
+
+# name target species
+targetSP<-c(weme, eame, grsp, dick, nobo, bevi, eaki, witk, ybcu, upsp, bobo, labu, sppi, cclo, basp, hesp, lbcu, seow, hola, buow)
+  # weme, eame, grsp, dick, nobo, bevi, eaki, witk, ybcu, upsp, bobo, labu, sppi, cclo, basp, hesp, lbcu, seow, hola, buow)
+targetSP<-c(weme, eame,   dick,  bevi, eaki)
+
+# loop to write csv of each species 
+for (i in 1:length(targetSP)){
+  gbif<- occ_data(scientificName = targetSP[i], 
+                  hasCoordinate = TRUE, year=2018,
+                  geometry= 'POLYGON((-103.2469 43.16474,-103.2469 30.76303, -96.54329 30.76303,-96.54329 43.16474, -103.2469 43.16474 ))',
+                  #stateProvince = c("Nebraska", "Oklahoma","Kansas" ),
+                  limit = 14000)
+  
+  gbif_LL_S<-dplyr::select(gbif$data,scientificName,decimalLongitude,decimalLatitude )
+  gbif_LL_S<-rename(gbif_LL_S, longitude=decimalLongitude )
+  gbif_LL_S<-rename(gbif_LL_S, latitude=decimalLatitude )
+  
+  nrow(gbif_LL_S)
+  
+  gbif_LL_S<-dplyr::select(gbif_LL_S, longitude,latitude ) # scientificName, longitude, latitude
+  
+  write.csv(gbif_LL_S, paste0(targetSP[i], ".csv"))
+}
+
+## MaxEnt and GLM V2 ##
+maxent()
+
+# read in csv files
+file_paths <- fs::dir_ls("C:/Users/jquinn2/Documents/gbif_LL_S")
+
+file_contents <- list()
+
+# store csv files as raster files/tifs
+for (i in seq_along(file_paths)){
+  species_raster_name <- gsub("C:/Users/jquinn2/Documents/gbif_LL_S/", "BCR192018", file_paths[[i]])
+  species_raster_name <- gsub(".csv", "", species_raster_name)
+  
+  file_contents <- read.csv(file = file_paths[[i]], skipNul = TRUE)
+  
+  # take out first column (the x column) in file_contents
+  file_contents[1] <- NULL
+
+  # have all maxent outputs stored in one variable INSTEAD of overriding each other  
+  species_maxent <- maxent(x=predictors_BCR, file_contents, factors='CDL_mode')
+  
+  # store as raster file 
+  # Research deleting temp - make temp written over each time
+  # Current
+  px_BCR_species <- predict(predictors_BCR, species_maxent, ext=BCRExtent, progress='text')
+  px_BCR_species <- mask_raster(raster=px_BCR_species, shape=GMI_BCR_AOI)
+  
+  # 25% increase
+  px_BCR_species_NtE25Per_nonGr <- predict(predictors_BCR_NtE25Per_nonGr, species_maxent, ext=BCRExtent, progress='text')
+  px_BCR_species_NtE25Per_nonGr <- mask_raster(raster=px_BCR_species_NtE25Per_nonGr, shape=GMI_BCR_AOI)
+  
+  # 50% increase
+  px_BCR_species_NtE50Per_nonGr <- predict(predictors_BCR_NtE50Per_nonGr, species_maxent, ext=BCRExtent, progress='text')
+  px_BCR_species_NtE50Per_nonGr <- mask_raster(raster=px_BCR_species_NtE50Per_nonGr, shape=GMI_BCR_AOI)
+  
+  # 75% increase
+  px_BCR_species_NtE75Per_nonGr <- predict(predictors_BCR_NtE75Per_nonGr, species_maxent, ext=BCRExtent, progress='text')
+  px_BCR_species_NtE75Per_nonGr <- mask_raster(raster=px_BCR_species_NtE75Per_nonGr, shape=GMI_BCR_AOI)
+  
+  if(require(rgdal)){
+    writeRaster(px_BCR_species, paste0("CURRENT_", species_raster_name, ".tif"), format="GTiff", overwrite=TRUE)
+    
+    writeRaster(px_BCR_species_NtE25Per_nonGr, paste0("25_", species_raster_name, ".tif"), format="GTiff", overwrite=TRUE)
+    
+    writeRaster(px_BCR_species_NtE50Per_nonGr, paste0("50_", species_raster_name, ".tif"), format="GTiff", overwrite=TRUE)
+    
+    writeRaster(px_BCR_species_NtE75Per_nonGr, paste0("75_", species_raster_name, ".tif"), format="GTiff", overwrite=TRUE)
+    
+    # do.call(file.remove, list(list.files(mytempdir, pattern = ".gri$", full.names = TRUE)))
+      # delete all temp files except ones needed to run program
+  }
+}
+
+
+## Summerize by WS ##
+# loads multiple rasters into a list
+rastlst <- list.files(path = "C:/Users/jquinn2/Documents/gbif_LL_S", pattern = '.tif$', all.files = TRUE, full.names = TRUE)
+allrastlst <- lapply(rastlst, raster)
+
+for (i in seq_along(allrastlst)){
+  EE_bywatershed <- exact_extract(allrastlst[[i]], BCR_HUC12watershed, 'mean')
+  write.csv(EE_bywatershed, paste0("nonGr_", names(allrastlst[[i]]), ".csv"))
+}
